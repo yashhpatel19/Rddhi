@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, Search, Trash2, Edit2, ShieldAlert, CheckCircle, Banknote, ChevronDown } from "lucide-react";
+import { Plus, Search, Trash2, Edit2, ShieldAlert, CheckCircle, Banknote, ChevronDown, Lock, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format, parseISO } from "date-fns";
@@ -170,6 +170,9 @@ export default function TradesPage() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [closingTrade, setClosingTrade] = useState(null);
+  const [closeForm, setCloseForm] = useState({ claims: 0, close_notes: "" });
 
   const fetchTrades = useCallback(async () => {
     try {
@@ -249,6 +252,26 @@ export default function TradesPage() {
     } catch { toast.error("Failed to record claim"); }
   };
 
+  const handleOpenClose = (trade) => {
+    setClosingTrade(trade);
+    setCloseForm({ claims: trade.claims || 0, close_notes: "" });
+    setCloseDialogOpen(true);
+  };
+
+  const handleCloseTrade = async () => {
+    if (!closingTrade) return;
+    setSaving(true);
+    try {
+      await axios.put(`${API}/trades/${closingTrade.id}/close`, closeForm);
+      toast.success("Trade closed successfully");
+      setCloseDialogOpen(false);
+      setClosingTrade(null);
+      fetchTrades();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to close trade");
+    } finally { setSaving(false); }
+  };
+
   const filtered = trades.filter(t =>
     t.container_name.toLowerCase().includes(search.toLowerCase()) ||
     t.supplier_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -325,6 +348,9 @@ export default function TradesPage() {
                       <DropdownMenuContent align="end" className="bg-[#121212] border-[#27272A]">
                         <DropdownMenuItem onClick={() => handleEdit(trade)} data-testid={`edit-trade-${trade.id}`}><Edit2 className="h-3.5 w-3.5 mr-2" />Edit</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleClaimIncrement(trade)} data-testid={`claim-trade-${trade.id}`}><ShieldAlert className="h-3.5 w-3.5 mr-2" />Add Claim ({trade.claims})</DropdownMenuItem>
+                        {trade.status === 'active' && (
+                          <DropdownMenuItem onClick={() => handleOpenClose(trade)} data-testid={`close-trade-${trade.id}`}><Lock className="h-3.5 w-3.5 mr-2" />Close Trade</DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => handleDelete(trade.id)} className="text-red-400" data-testid={`delete-trade-${trade.id}`}><Trash2 className="h-3.5 w-3.5 mr-2" />Delete</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -344,6 +370,42 @@ export default function TradesPage() {
             <p id="trade-dialog-description" className="text-sm text-muted-foreground">{editingTrade ? 'Update the trade details below' : 'Fill in the trade details to calculate commissions'}</p>
           </DialogHeader>
           <TradeForm form={form} setForm={setForm} onSubmit={handleSubmit} loading={saving} isEdit={!!editingTrade} />
+        </DialogContent>
+      </Dialog>
+
+      {/* Close Trade Dialog */}
+      <Dialog open={closeDialogOpen} onOpenChange={(open) => { setCloseDialogOpen(open); if (!open) setClosingTrade(null); }}>
+        <DialogContent className="max-w-md bg-[#121212] border-[#27272A]" data-testid="close-trade-dialog" aria-describedby="close-trade-desc">
+          <DialogHeader>
+            <DialogTitle className="font-barlow text-xl font-bold tracking-tight flex items-center gap-2">
+              <Lock className="h-5 w-5 text-muted-foreground" strokeWidth={1.5} />
+              Close Trade
+            </DialogTitle>
+            <DialogDescription id="close-trade-desc" className="text-sm text-muted-foreground">
+              Closing <span className="font-mono font-semibold text-foreground">{closingTrade?.container_name}</span> will mark it as completed. Please record any claims.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="rounded-lg bg-[#09090B] border border-[#27272A] p-3 space-y-2">
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Customer</span><span>{closingTrade?.customer_name}</span></div>
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Commission</span><span className="font-mono text-emerald-400">${closingTrade?.final_commission?.toLocaleString('en-US', {minimumFractionDigits: 2})}</span></div>
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Cash to Collect</span><span className="font-mono text-blue-400">${closingTrade?.cash_to_collect?.toLocaleString('en-US', {minimumFractionDigits: 2})}</span></div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground">Total Claims on this Trade</Label>
+              <Input type="number" min="0" data-testid="close-trade-claims" value={closeForm.claims} onChange={e => setCloseForm({...closeForm, claims: parseInt(e.target.value) || 0})} className="bg-[#09090B] border-[#27272A] font-mono text-sm" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground">Closing Notes</Label>
+              <textarea data-testid="close-trade-notes" value={closeForm.close_notes} onChange={e => setCloseForm({...closeForm, close_notes: e.target.value})} rows={3} placeholder="Any final notes, issues, or remarks about this trade..." className="w-full rounded-md bg-[#09090B] border border-[#27272A] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setCloseDialogOpen(false)} className="flex-1 border-[#27272A]" data-testid="close-trade-cancel-btn">Cancel</Button>
+              <Button onClick={handleCloseTrade} disabled={saving} className="flex-1 bg-white text-black hover:bg-white/90 font-semibold" data-testid="close-trade-confirm-btn">
+                {saving ? "Closing..." : "Close Trade"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

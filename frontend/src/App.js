@@ -5,6 +5,7 @@ import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
 import TradesPage from "@/pages/TradesPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
+import ReportsPage from "@/pages/ReportsPage";
 import Sidebar from "@/components/Sidebar";
 import NotificationBell from "@/components/NotificationBell";
 import { Toaster } from "sonner";
@@ -77,6 +78,7 @@ function App() {
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/trades" element={<TradesPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

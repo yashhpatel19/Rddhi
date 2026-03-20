@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { LayoutGrid, Container, LineChart, LogOut, Settings } from "lucide-react";
+import { LayoutGrid, Container, LineChart, LogOut, Settings, FileBarChart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 
@@ -8,6 +8,7 @@ const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutGrid },
   { path: "/trades", label: "Trades", icon: Container },
   { path: "/analytics", label: "Analytics", icon: LineChart },
+  { path: "/reports", label: "Reports", icon: FileBarChart },
 ];
 
 export default function Sidebar({ onNavigate }) {

@@ -1,9 +1,12 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import csv
+import io
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -111,9 +114,29 @@ def format_trade(doc):
         'customer_collected': doc.get('customer_collected', False),
         'claims': doc.get('claims', 0),
         'status': doc.get('status', 'active'),
+        'close_notes': doc.get('close_notes', ''),
+        'closed_at': doc.get('closed_at'),
         'created_at': doc.get('created_at'),
         'updated_at': doc.get('updated_at'),
     }
+
+def get_fy_range(fy_year: int):
+    """Financial year: April of fy_year to March of fy_year+1"""
+    start = datetime(fy_year, 4, 1, tzinfo=timezone.utc)
+    end = datetime(fy_year + 1, 3, 31, 23, 59, 59, tzinfo=timezone.utc)
+    return start, end
+
+def get_current_fy():
+    now = datetime.now(timezone.utc)
+    return now.year if now.month >= 4 else now.year - 1
+
+async def get_trades_for_fy(user_id: str, fy: int = None):
+    if fy:
+        start, end = get_fy_range(fy)
+        query = {'user_id': user_id, 'created_at': {'$gte': start.isoformat(), '$lte': end.isoformat()}}
+    else:
+        query = {'user_id': user_id}
+    return await db.trades.find(query, {'_id': 0}).to_list(5000)
 
 # --- Models ---
 class RegisterRequest(BaseModel):
@@ -152,6 +175,10 @@ class TradeUpdate(BaseModel):
     customer_collected: Optional[bool] = None
     claims: Optional[int] = None
     status: Optional[str] = None
+
+class CloseTradeRequest(BaseModel):
+    claims: int = 0
+    close_notes: str = ""
 
 # --- Auth ---
 @api_router.post("/auth/register")
@@ -320,8 +347,8 @@ async def dashboard_heatmap(user=Depends(get_current_user)):
 
 # --- Analytics ---
 @api_router.get("/analytics/suppliers")
-async def supplier_rankings(user=Depends(get_current_user)):
-    trades = await db.trades.find({'user_id': user['id']}, {'_id': 0}).to_list(1000)
+async def supplier_rankings(fy: Optional[int] = None, user=Depends(get_current_user)):
+    trades = await get_trades_for_fy(user['id'], fy)
     suppliers = {}
     for t in trades:
         name = t['supplier_name']
@@ -348,8 +375,8 @@ async def supplier_rankings(user=Depends(get_current_user)):
     return result
 
 @api_router.get("/analytics/customers")
-async def customer_trust_scores(user=Depends(get_current_user)):
-    trades = await db.trades.find({'user_id': user['id']}, {'_id': 0}).to_list(1000)
+async def customer_trust_scores(fy: Optional[int] = None, user=Depends(get_current_user)):
+    trades = await get_trades_for_fy(user['id'], fy)
     customers = {}
     now = datetime.now(timezone.utc)
     for t in trades:
@@ -560,6 +587,207 @@ async def seed_demo_data(user=Depends(get_current_user)):
 @api_router.get("/")
 async def root():
     return {"message": "The Invisible Agent API"}
+
+# --- Close Trade ---
+@api_router.put("/trades/{trade_id}/close")
+async def close_trade(trade_id: str, body: CloseTradeRequest, user=Depends(get_current_user)):
+    trade = await db.trades.find_one({'id': trade_id, 'user_id': user['id']}, {'_id': 0})
+    if not trade:
+        raise HTTPException(status_code=404, detail='Trade not found')
+    now = datetime.now(timezone.utc).isoformat()
+    update_data = {
+        'status': 'completed',
+        'customer_collected': True,
+        'supplier_paid': True,
+        'claims': body.claims,
+        'close_notes': body.close_notes,
+        'closed_at': now,
+        'updated_at': now,
+    }
+    await db.trades.update_one({'id': trade_id}, {'$set': update_data})
+    updated = await db.trades.find_one({'id': trade_id}, {'_id': 0})
+    return format_trade(updated)
+
+# --- Reports ---
+@api_router.get("/reports/commission")
+async def commission_report(fy: Optional[int] = None, user=Depends(get_current_user)):
+    if not fy:
+        fy = get_current_fy()
+    start, end = get_fy_range(fy)
+    trades = await db.trades.find({
+        'user_id': user['id'],
+        'created_at': {'$gte': start.isoformat(), '$lte': end.isoformat()}
+    }, {'_id': 0}).to_list(5000)
+    monthly = {}
+    for t in trades:
+        created = t.get('created_at', '')
+        try:
+            dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+            month_key = f"{dt.year}-{dt.month:02d}"
+        except Exception:
+            continue
+        if month_key not in monthly:
+            monthly[month_key] = {'month': month_key, 'trades': 0, 'commission': 0, 'cash_collected': 0, 'supplier_paid': 0, 'cbm': 0}
+        monthly[month_key]['trades'] += 1
+        monthly[month_key]['commission'] += decrypt_value(t.get('final_commission_enc', ''))
+        monthly[month_key]['cbm'] += t['cbm']
+        if t.get('customer_collected'):
+            monthly[month_key]['cash_collected'] += decrypt_value(t.get('cash_to_collect_enc', ''))
+        if t.get('supplier_paid'):
+            monthly[month_key]['supplier_paid'] += decrypt_value(t.get('supplier_cash_due_enc', ''))
+    by_supplier = {}
+    for t in trades:
+        name = t['supplier_name']
+        if name not in by_supplier:
+            by_supplier[name] = {'name': name, 'trades': 0, 'commission': 0}
+        by_supplier[name]['trades'] += 1
+        by_supplier[name]['commission'] += decrypt_value(t.get('final_commission_enc', ''))
+    by_customer = {}
+    for t in trades:
+        name = t['customer_name']
+        if name not in by_customer:
+            by_customer[name] = {'name': name, 'trades': 0, 'commission': 0}
+        by_customer[name]['trades'] += 1
+        by_customer[name]['commission'] += decrypt_value(t.get('final_commission_enc', ''))
+    total_commission = sum(m['commission'] for m in monthly.values())
+    months = sorted(monthly.values(), key=lambda x: x['month'])
+    for m in months:
+        m['commission'] = round(m['commission'], 2)
+        m['cash_collected'] = round(m['cash_collected'], 2)
+        m['supplier_paid'] = round(m['supplier_paid'], 2)
+        m['cbm'] = round(m['cbm'], 2)
+    return {
+        'fy': fy,
+        'fy_label': f"FY {fy}-{fy + 1}",
+        'total_commission': round(total_commission, 2),
+        'total_trades': len(trades),
+        'total_cbm': round(sum(t['cbm'] for t in trades), 2),
+        'monthly': months,
+        'by_supplier': sorted([{**s, 'commission': round(s['commission'], 2)} for s in by_supplier.values()], key=lambda x: x['commission'], reverse=True),
+        'by_customer': sorted([{**c, 'commission': round(c['commission'], 2)} for c in by_customer.values()], key=lambda x: x['commission'], reverse=True),
+    }
+
+@api_router.get("/reports/commission/export")
+async def export_commission_csv(fy: Optional[int] = None, user=Depends(get_current_user)):
+    if not fy:
+        fy = get_current_fy()
+    start, end = get_fy_range(fy)
+    trades = await db.trades.find({
+        'user_id': user['id'],
+        'created_at': {'$gte': start.isoformat(), '$lte': end.isoformat()}
+    }, {'_id': 0}).to_list(5000)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Container', 'Supplier', 'Customer', 'CBM', 'Bill Rate', 'Supplier Rate', 'Sale Rate',
+                     'Cash to Collect', 'Supplier Due', 'Commission', 'Final Commission', 'Risk Premium',
+                     'Supplier Paid', 'Customer Collected', 'Claims', 'Status', 'Created'])
+    for t in trades:
+        writer.writerow([
+            t['container_name'], t['supplier_name'], t['customer_name'],
+            t['cbm'], t['official_bill_rate'], t.get('supplier_total_rate', 0), t.get('customer_sale_rate', 0),
+            round(decrypt_value(t.get('cash_to_collect_enc', '')), 2),
+            round(decrypt_value(t.get('supplier_cash_due_enc', '')), 2),
+            round(decrypt_value(t.get('my_commission_enc', '')), 2),
+            round(decrypt_value(t.get('final_commission_enc', '')), 2),
+            t.get('risk_premium', False),
+            t.get('supplier_paid', False), t.get('customer_collected', False),
+            t.get('claims', 0), t.get('status', ''), t.get('created_at', '')
+        ])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=commission_report_fy{fy}_{fy + 1}.csv"}
+    )
+
+# --- Best Customers ---
+@api_router.get("/analytics/best-customers")
+async def best_customers(fy: Optional[int] = None, user=Depends(get_current_user)):
+    if not fy:
+        fy = get_current_fy()
+    trades = await get_trades_for_fy(user['id'], fy)
+    now = datetime.now(timezone.utc)
+    customers = {}
+    for t in trades:
+        name = t['customer_name']
+        if name not in customers:
+            customers[name] = {'name': name, 'total_trades': 0, 'total_commission': 0, 'total_volume': 0,
+                               'collected': 0, 'delayed': 0, 'total_cash': 0}
+        customers[name]['total_trades'] += 1
+        customers[name]['total_commission'] += decrypt_value(t.get('final_commission_enc', ''))
+        customers[name]['total_volume'] += t['cbm']
+        customers[name]['total_cash'] += decrypt_value(t.get('cash_to_collect_enc', ''))
+        if t.get('customer_collected'):
+            customers[name]['collected'] += 1
+        if t.get('customer_collection_date') and not t.get('customer_collected'):
+            try:
+                due = datetime.fromisoformat(t['customer_collection_date'].replace('Z', '+00:00'))
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=timezone.utc)
+                if now > due:
+                    customers[name]['delayed'] += 1
+            except Exception:
+                pass
+    result = []
+    for c in customers.values():
+        result.append({
+            **c,
+            'total_commission': round(c['total_commission'], 2),
+            'total_cash': round(c['total_cash'], 2),
+            'total_volume': round(c['total_volume'], 2),
+            'avg_commission_per_trade': round(c['total_commission'] / c['total_trades'], 2) if c['total_trades'] > 0 else 0,
+        })
+    result.sort(key=lambda x: x['total_commission'], reverse=True)
+    return {'fy': fy, 'fy_label': f"FY {fy}-{fy + 1}", 'customers': result}
+
+# --- Claims Analysis ---
+@api_router.get("/analytics/claims")
+async def claims_analysis(fy: Optional[int] = None, user=Depends(get_current_user)):
+    if not fy:
+        fy = get_current_fy()
+    current_trades = await get_trades_for_fy(user['id'], fy)
+    prev_trades = await get_trades_for_fy(user['id'], fy - 1)
+
+    def analyze_claims(trades_list):
+        suppliers = {}
+        customers = {}
+        total_claims = 0
+        total_trades = len(trades_list)
+        for t in trades_list:
+            claims = t.get('claims', 0)
+            total_claims += claims
+            sname = t['supplier_name']
+            if sname not in suppliers:
+                suppliers[sname] = {'name': sname, 'trades': 0, 'claims': 0}
+            suppliers[sname]['trades'] += 1
+            suppliers[sname]['claims'] += claims
+            cname = t['customer_name']
+            if cname not in customers:
+                customers[cname] = {'name': cname, 'trades': 0, 'claims': 0}
+            customers[cname]['trades'] += 1
+            customers[cname]['claims'] += claims
+        for s in suppliers.values():
+            s['claim_rate'] = round((s['claims'] / s['trades'] * 100) if s['trades'] > 0 else 0, 1)
+        for c in customers.values():
+            c['claim_rate'] = round((c['claims'] / c['trades'] * 100) if c['trades'] > 0 else 0, 1)
+        return {
+            'total_trades': total_trades,
+            'total_claims': total_claims,
+            'overall_rate': round((total_claims / total_trades * 100) if total_trades > 0 else 0, 1),
+            'by_supplier': sorted(suppliers.values(), key=lambda x: x['claims'], reverse=True),
+            'by_customer': sorted(customers.values(), key=lambda x: x['claims'], reverse=True),
+        }
+
+    current = analyze_claims(current_trades)
+    previous = analyze_claims(prev_trades)
+    trend = 'improving' if current['overall_rate'] < previous['overall_rate'] else ('worsening' if current['overall_rate'] > previous['overall_rate'] else 'stable')
+    return {
+        'fy': fy,
+        'fy_label': f"FY {fy}-{fy + 1}",
+        'current': current,
+        'previous': {'fy_label': f"FY {fy - 1}-{fy}", **previous},
+        'trend': trend,
+    }
 
 # Include router and middleware
 app.include_router(api_router)
