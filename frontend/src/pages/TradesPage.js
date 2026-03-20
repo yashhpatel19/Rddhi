@@ -338,9 +338,10 @@ export default function TradesPage() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingTrade(null); setForm(emptyForm); }}}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-[#121212] border-[#27272A]" data-testid="trade-dialog">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-[#121212] border-[#27272A]" data-testid="trade-dialog" aria-describedby="trade-dialog-description">
           <DialogHeader>
             <DialogTitle className="font-barlow text-xl font-bold tracking-tight">{editingTrade ? 'Edit Trade' : 'New Trade'}</DialogTitle>
+            <p id="trade-dialog-description" className="text-sm text-muted-foreground">{editingTrade ? 'Update the trade details below' : 'Fill in the trade details to calculate commissions'}</p>
           </DialogHeader>
           <TradeForm form={form} setForm={setForm} onSubmit={handleSubmit} loading={saving} isEdit={!!editingTrade} />
         </DialogContent>

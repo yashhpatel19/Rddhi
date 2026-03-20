@@ -60,7 +60,7 @@ export default function NotificationBell() {
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 bg-[#121212] border-[#27272A]" data-testid="notification-dropdown">
+      <DropdownMenuContent align="end" className="w-80 bg-[#121212] border-[#27272A] z-[100]" data-testid="notification-dropdown">
         <div className="flex items-center justify-between px-3 py-2">
           <DropdownMenuLabel className="text-sm font-semibold p-0">Notifications</DropdownMenuLabel>
           {unreadCount > 0 && (

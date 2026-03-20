@@ -184,7 +184,7 @@ async def get_me(user=Depends(get_current_user)):
     return {'id': user['id'], 'name': user['name'], 'email': user['email']}
 
 # --- Trades ---
-@api_router.post("/trades")
+@api_router.post("/trades", status_code=201)
 async def create_trade(trade: TradeCreate, user=Depends(get_current_user)):
     calcs = calculate_trade(trade.cbm, trade.official_bill_rate, trade.supplier_total_rate, trade.customer_sale_rate, trade.risk_premium)
     trade_id = str(uuid.uuid4())
