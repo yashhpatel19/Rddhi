@@ -1,0 +1,169 @@
+{
+  "project_name": "The Invisible Agent",
+  "design_philosophy": {
+    "theme_mode": "dark",
+    "emotional_tone": "Stealth, Precision, Authority, Data-Dense",
+    "visual_style": "Tactical Fintech / Dark Mode Logistics",
+    "core_principles": [
+      "Information Density: maximize screen real estate with tight grids",
+      "Stealth Aesthetics: dark backgrounds, subtle borders, no unnecessary glare",
+      "Trust & Security: high contrast for readability, no ambiguous colors",
+      "Mobile-First Tactics: complex tables must break down into readable cards on mobile"
+    ]
+  },
+  "typography": {
+    "font_family_primary": "Inter, sans-serif",
+    "font_family_secondary": "JetBrains Mono, monospace",
+    "font_family_headings": "Barlow Condensed, sans-serif",
+    "usage_rules": {
+      "headings": "Barlow Condensed, Font Weight 600/700, Tracking Tight. Uppercase for section labels.",
+      "body": "Inter, Font Weight 400. High legibility.",
+      "numbers_data": "JetBrains Mono, Font Weight 500. Tabular figures for all financial data.",
+      "labels": "Inter, Uppercase, Tracking Widest (0.1em), Text-XS, Muted Foreground"
+    },
+    "scale": {
+      "h1": "text-4xl md:text-5xl font-bold tracking-tight",
+      "h2": "text-3xl font-semibold tracking-tight",
+      "h3": "text-2xl font-medium",
+      "body": "text-sm leading-relaxed",
+      "data_large": "text-xl font-mono tracking-tight",
+      "data_small": "text-xs font-mono text-muted-foreground"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": "#09090B",
+      "card_background": "#121212",
+      "foreground": "#FAFAFA",
+      "muted": "#27272A",
+      "muted_foreground": "#A1A1AA",
+      "border": "#27272A",
+      "primary": "#FFFFFF",
+      "primary_foreground": "#000000",
+      "accent": "#2563EB",
+      "success": "#22C55E",
+      "warning": "#EAB308",
+      "error": "#EF4444",
+      "profit": "#10B981",
+      "loss": "#F43F5E"
+    },
+    "gradients": {
+      "heatmap_safe": "bg-emerald-950 text-emerald-400 border-emerald-900",
+      "heatmap_warning": "bg-yellow-950 text-yellow-400 border-yellow-900",
+      "heatmap_danger": "bg-red-950 text-red-400 border-red-900",
+      "active_glow": "shadow-[0_0_15px_rgba(37,99,235,0.3)]"
+    },
+    "usage": {
+      "main_bg": "bg-[#09090B]",
+      "card_bg": "bg-[#121212] border border-[#27272A]",
+      "text_primary": "text-[#FAFAFA]",
+      "text_secondary": "text-[#A1A1AA]"
+    }
+  },
+  "layout": {
+    "grid_system": "Bento Grid Mode B (High Density)",
+    "spacing": {
+      "container_padding": "p-4 md:p-6 lg:p-8",
+      "item_gap": "gap-4",
+      "section_gap": "gap-8"
+    },
+    "containers": {
+      "dashboard_wrapper": "max-w-[1600px] mx-auto min-h-screen bg-background text-foreground",
+      "card_standard": "rounded-lg border bg-card text-card-foreground shadow-sm p-5",
+      "card_interactive": "rounded-lg border bg-card hover:bg-accent/5 transition-colors cursor-pointer p-5"
+    }
+  },
+  "components": {
+    "TripleLedgerCalculator": {
+      "description": "The core feature. Must visually separate 'Official' (White) vs 'Actual' (Grey/Mono) data.",
+      "structure": "Split view or T-Account layout. Left side: Supplier Metrics. Right side: Customer Metrics. Bottom: Commission Delta.",
+      "style": "Use 'JetBrains Mono' for all inputs. Inputs should have 'border-b' only styling to look like a ledger."
+    },
+    "CollectionHeatmap": {
+      "description": "Visual grid of unpaid invoices aged by time.",
+      "style": "Grid of small squares. Green (<7 days), Yellow (7-20 days), Red (>30 days). Tooltip on hover shows details."
+    },
+    "PaymentReminders": {
+      "description": "List of upcoming dues.",
+      "style": "Compact list. Date on left (Mono), Client Name (Bold), Amount (Right aligned). 'Bell' icon for notification status."
+    },
+    "TrustScore": {
+      "description": "Customer reliability rating.",
+      "style": "Radial progress bar or Shield icon with score inside. Color coded (0-40 Red, 41-70 Yellow, 71-100 Green)."
+    },
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_0_10px_rgba(255,255,255,0.2)]",
+      "secondary": "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+      "ghost": "hover:bg-accent hover:text-accent-foreground",
+      "destructive": "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+    }
+  },
+  "visual_enhancers": {
+    "glassmorphism": "backdrop-blur-xl bg-black/40 border-b border-white/10",
+    "borders": "border border-white/5",
+    "shadows": "shadow-2xl shadow-black",
+    "micro_interactions": "Active elements scale 1.02 on hover. Inputs glow slightly on focus."
+  },
+  "images": {
+    "login_hero": {
+      "url": "https://images.unsplash.com/photo-1771756743992-bc772a4f8d7e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwyfHxkYXJrJTIwY29udGFpbmVyJTIwc2hpcCUyMHBvcnQlMjBuaWdodHxlbnwwfHx8fDE3NzQwMDQxODV8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Dark container ship at night",
+      "usage": "Full height split screen on Login/Register page"
+    },
+    "user_avatar_default": {
+      "url": "https://images.unsplash.com/photo-1770894807442-108cc33c0a7a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBvcnRyYWl0JTIwZGFyayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzc0MDA0MTg2fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Professional user avatar",
+      "usage": "Top right profile menu"
+    },
+    "card_bg_pattern": {
+      "url": "https://images.unsplash.com/photo-1747846480616-d72dbbeb5c5e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMHdvcmxkJTIwbWFwJTIwbmV0d29yayUyMGRhcmt8ZW58MHx8fHwxNzc0MDA0MTg3fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract geometric dark pattern",
+      "usage": "Optional background for 'Total Commission' card opacity-20"
+    }
+  },
+  "iconography": {
+    "library": "lucide-react",
+    "style": "Stroke width 1.5px (Thin/Elegant). Size 16px-20px.",
+    "key_icons": {
+      "dashboard": "LayoutGrid",
+      "trades": "Container",
+      "calculator": "Calculator",
+      "analytics": "LineChart",
+      "settings": "Settings",
+      "notifications": "Bell",
+      "risk": "ShieldAlert",
+      "cash": "Banknote"
+    }
+  },
+  "motion": {
+    "page_transition": "initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}",
+    "card_hover": "hover:translate-y-[-2px] transition-transform duration-200",
+    "list_stagger": "Stagger children by 0.05s"
+  },
+  "charts": {
+    "library": "Recharts (via Shadcn/Charts)",
+    "theme": {
+      "grid": "stroke-[#27272A] stroke-dasharray='3 3'",
+      "tooltip": "bg-[#121212] border-[#27272A] text-[#FAFAFA]",
+      "colors": ["#2563EB", "#22C55E", "#EAB308", "#EF4444", "#8B5CF6"]
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install 'clsx' and 'tailwind-merge' if not present for dynamic classes.",
+    "Use 'sonner' for all notifications (already in ui/sonner).",
+    "Ensure all inputs in the Triple-Ledger Calculator use type='number' or proper formatting.",
+    "The Risk Premium toggle must visually change the calculation row color (e.g., to amber).",
+    "Use 'date-fns' for date formatting in the Payment Reminders.",
+    "Implement the 'Collection Heatmap' as a CSS Grid of colored divs based on days overdue.",
+    "STRICTLY use the provided 'login_hero' image for the auth pages.",
+    "Do NOT use gradients for backgrounds. Use solid dark colors with subtle borders."
+  ],
+  "UNIVERSAL_GUIDELINES": [
+    "Do not use generic centered layouts. Use Bento grids.",
+    "All interactive elements MUST include data-testid attributes.",
+    "Use glass-morphism effects for headers: backdrop-blur-xl bg-black/40.",
+    "Never use 'transition: all'. Animate specific properties.",
+    "Inputs should have high contrast text (white on dark grey).",
+    "Buttons must have distinct hover states."
+  ]
+}
