@@ -36,6 +36,11 @@ A specialized ERP for trade agents managing "back-to-back" international orders 
 - [x] Dark theme professional UI
 - [x] Mobile-responsive design
 - [x] Search and filter on trades
+- [x] **Monthly Commission Report** with FY selector + CSV export
+- [x] **Best Customer Leaderboard** ranked by commission (FY filtered)
+- [x] **Close Trade Dialog** with claims + notes prompt
+- [x] **Claims Analysis** with FY comparison (current vs previous year trends)
+- [x] **FY Date Filters** on all analytics tabs (Suppliers, Customers, Best Customers, Claims)
 
 ## Prioritized Backlog
 ### P0 (Critical)
