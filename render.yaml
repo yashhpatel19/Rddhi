@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: rddhi-api
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: MONGODB_URI
+        fromDatabase:
+          name: rddhi-db
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+
+databases:
+  - name: rddhi-db
+    databaseName: rddhi
+    user: rddhi_user
+    region: oregon
+    plan: free
