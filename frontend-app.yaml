@@ -1,0 +1,17 @@
+name: rddhi-web
+services:
+- name: web
+  github:
+    repo: yashhpatel19/Rddhi
+    branch: main
+  source_dir: frontend
+  build_command: npm install && npm run build
+  run_command: npm start
+  http_port: 3000
+  instance_count: 1
+  instance_size_slug: basic-xs
+  envs:
+  - key: REACT_APP_BACKEND_URL
+    value: "https://rddhi-api.ondigitalocean.app"
+  - key: REACT_APP_ENVIRONMENT
+    value: production

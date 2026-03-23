@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # Backend API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rddhi-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DEBUG=${DEBUG:-false}
+      - MONGO_URL=${MONGO_URL}
+      - DB_NAME=${DB_NAME}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-24}
+      - JWT_REFRESH_EXPIRATION_DAYS=${JWT_REFRESH_EXPIRATION_DAYS:-7}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
+      - RATE_LIMIT_PER_HOUR=${RATE_LIMIT_PER_HOUR:-1000}
+    volumes:
+      - ./backend:/app
+      - ./logs:/app/logs
+    networks:
+      - rddhi-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - mongodb
+    
+  # Frontend (development only)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rddhi-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL:-http://localhost:8000}
+      - REACT_APP_ENVIRONMENT=${REACT_APP_ENVIRONMENT:-development}
+    volumes:
+      - ./frontend/src:/app/src
+    networks:
+      - rddhi-network
+    restart: unless-stopped
+    depends_on:
+      - api
+    
+  # MongoDB (for local development)
+  mongodb:
+    image: mongo:7.0
+    container_name: rddhi-mongodb
+    # Uncomment for production with authentication
+    # environment:
+    #   - MONGO_INITDB_ROOT_USERNAME=admin
+    #   - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - rddhi-network
+    restart: unless-stopped
+    # Security: Don't expose in production
+    profiles:
+      - dev
+
+volumes:
+  mongodb_data:
+  mongodb_config:
+
+networks:
+  rddhi-network:
+    driver: bridge

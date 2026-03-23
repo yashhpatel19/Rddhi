@@ -30,27 +30,66 @@ next-env.d.ts
 dist/
 dist
 
-# Environment files (comprehensive coverage)
+# Environment files - NEVER COMMIT SECRETS
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.production.example
+.env.development
+.env.test
+.env.staging
 
+# Tokens, credentials, and secrets
 *token.json*
 *credentials.json*
+*secret*
+*.key
+*.pem
+*.crt
+*.csr
+
+# Database and backup files
+dump.rdb
+*.dump
+*.sql
+*.sql.gz
+backup/
+backups/
+*.backup
+*.archive
+*.tar.gz
+*.encrypted
+*.gpg
 
 # Logs and debug files
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-dump.rdb
+*.log
+logs/
+*.log.*
 
 # System files
 .DS_Store
 *.pem
+.AppleDouble
+.LSOverride
+Thumbs.db
 
 # Python
 __pycache__/
-*pyc*
+*.py[cod]
+*$py.class
+*.so
+.Python
 venv/
 .venv/
+env/
+.env/
+pip-log.txt
+pip-delete-this-directory.txt
 
 # Development tools
 chainlit.md
@@ -58,29 +97,36 @@ chainlit.md
 .ipynb_checkpoints/
 .ac
 
+# IDE and editors (system-specific)
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+*.swp
+*.swo
+*~
+.DS_Store
+
 # Deployment
 .vercel
 
 # Data and databases
 agenthub/agents/youtube/db
+mongo_data/
+mongodb_data/
 
 # Archive files and large assets
 **/*.zip
 **/*.tar.gz
 **/*.tar
 **/*.tgz
+**/*.tar.bz2
 *.pack
 *.deb
 *.dylib
 
 # Build caches
 .cache/
+.eslintcache
 
-# Mobile development
-android-sdk/ frontend/node_modules/.cache/default-development/9.pack
-frontend/node_modules/.cache/default-development/10.pack
-frontend/node_modules/.cache/default-development/16.pack
--e 
-# Environment files
-*.env
-*.env.*
+# Node modules cache
+frontend/node_modules/.cache/

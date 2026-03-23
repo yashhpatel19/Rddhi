@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, Search, Trash2, Edit2, ShieldAlert, CheckCircle, Banknote, ChevronDown, Lock, FileText } from "lucide-react";
+import { Plus, Search, Trash2, Edit2, ShieldAlert, CheckCircle, Banknote, ChevronDown, Lock, FileText, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -173,6 +173,10 @@ export default function TradesPage() {
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closingTrade, setClosingTrade] = useState(null);
   const [closeForm, setCloseForm] = useState({ claims: 0, close_notes: "" });
+  const [partialPaymentDialogOpen, setPartialPaymentDialogOpen] = useState(false);
+  const [partialPaymentTrade, setPartialPaymentTrade] = useState(null);
+  const [partialPaymentSaving, setPartialPaymentSaving] = useState(false);
+  const [partialPaymentForm, setPartialPaymentForm] = useState({ amount: "", date: null });
 
   const fetchTrades = useCallback(async () => {
     try {
@@ -250,6 +254,41 @@ export default function TradesPage() {
       toast.success("Claim recorded");
       fetchTrades();
     } catch { toast.error("Failed to record claim"); }
+  };
+
+  const handleOpenPartialPayment = (trade) => {
+    setPartialPaymentTrade(trade);
+    setPartialPaymentForm({ amount: "", date: new Date() });
+    setPartialPaymentDialogOpen(true);
+  };
+
+  const handleSubmitPartialPayment = async () => {
+    if (!partialPaymentForm.amount || parseFloat(partialPaymentForm.amount) <= 0) {
+      toast.error("Please enter a valid payment amount");
+      return;
+    }
+    const amount = parseFloat(partialPaymentForm.amount);
+    if (amount > partialPaymentTrade.cash_to_collect) {
+      toast.error("Payment amount cannot exceed total amount to collect");
+      return;
+    }
+    setPartialPaymentSaving(true);
+    try {
+      await axios.put(`${API}/trades/${partialPaymentTrade.id}`, {
+        is_partially_paid: true,
+        partial_payment_amount: amount,
+        partial_payment_date: partialPaymentForm.date ? partialPaymentForm.date.toISOString() : new Date().toISOString(),
+      });
+      toast.success("Partial payment recorded");
+      setPartialPaymentDialogOpen(false);
+      setPartialPaymentTrade(null);
+      setPartialPaymentForm({ amount: "", date: null });
+      fetchTrades();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to record partial payment");
+    } finally {
+      setPartialPaymentSaving(false);
+    }
   };
 
   const handleOpenClose = (trade) => {
@@ -339,6 +378,9 @@ export default function TradesPage() {
                     <button onClick={() => handleToggleStatus(trade, 'customer_collected')} className={`p-1.5 rounded transition-colors ${trade.customer_collected ? 'text-blue-400' : 'text-muted-foreground hover:text-foreground'}`} title={trade.customer_collected ? 'Customer Collected' : 'Mark Collected'} data-testid={`toggle-customer-collected-${trade.id}`}>
                       <Banknote className="h-4 w-4" strokeWidth={1.5} />
                     </button>
+                    <button onClick={() => handleOpenPartialPayment(trade)} className={`p-1.5 rounded transition-colors ${trade.is_partially_paid ? 'text-amber-400' : 'text-muted-foreground hover:text-foreground'}`} title={trade.is_partially_paid ? `Partially Paid: $${trade.partial_payment_amount?.toLocaleString('en-US', {minimumFractionDigits: 2}) || '0'} | Balance: $${trade.remaining_balance?.toLocaleString('en-US', {minimumFractionDigits: 2}) || trade.cash_to_collect?.toLocaleString('en-US', {minimumFractionDigits: 2})}` : 'Mark Partial Payment'} data-testid={`partial-payment-${trade.id}`}>
+                      <AlertCircle className="h-4 w-4" strokeWidth={1.5} />
+                    </button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button className="p-1.5 rounded text-muted-foreground hover:text-foreground transition-colors" data-testid={`trade-actions-${trade.id}`}>
@@ -403,6 +445,71 @@ export default function TradesPage() {
               <Button variant="outline" onClick={() => setCloseDialogOpen(false)} className="flex-1 border-[#27272A]" data-testid="close-trade-cancel-btn">Cancel</Button>
               <Button onClick={handleCloseTrade} disabled={saving} className="flex-1 bg-white text-black hover:bg-white/90 font-semibold" data-testid="close-trade-confirm-btn">
                 {saving ? "Closing..." : "Close Trade"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Partial Payment Dialog */}
+      <Dialog open={partialPaymentDialogOpen} onOpenChange={(open) => { setPartialPaymentDialogOpen(open); if (!open) { setPartialPaymentTrade(null); setPartialPaymentForm({ amount: "", date: null }); }}}>
+        <DialogContent className="max-w-md bg-[#121212] border-[#27272A]" data-testid="partial-payment-dialog" aria-describedby="partial-payment-desc">
+          <DialogHeader>
+            <DialogTitle className="font-barlow text-xl font-bold tracking-tight flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-400" strokeWidth={1.5} />
+              Record Partial Payment
+            </DialogTitle>
+            <DialogDescription id="partial-payment-desc" className="text-sm text-muted-foreground">
+              Record a partial payment for <span className="font-mono font-semibold text-foreground">{partialPaymentTrade?.container_name}</span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="rounded-lg bg-[#09090B] border border-[#27272A] p-3 space-y-2">
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Customer</span><span>{partialPaymentTrade?.customer_name}</span></div>
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Total Amount Due</span><span className="font-mono text-blue-400">${partialPaymentTrade?.cash_to_collect?.toLocaleString('en-US', {minimumFractionDigits: 2})}</span></div>
+              {partialPaymentTrade?.is_partially_paid && (
+                <>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Already Paid</span><span className="font-mono text-amber-400">${partialPaymentTrade?.partial_payment_amount?.toLocaleString('en-US', {minimumFractionDigits: 2})}</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Remaining Balance</span><span className="font-mono text-orange-400">${partialPaymentTrade?.remaining_balance?.toLocaleString('en-US', {minimumFractionDigits: 2})}</span></div>
+                </>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Amount</Label>
+              <Input 
+                type="number" 
+                step="0.01" 
+                min="0" 
+                data-testid="partial-payment-amount"
+                value={partialPaymentForm.amount} 
+                onChange={e => setPartialPaymentForm({...partialPaymentForm, amount: e.target.value})} 
+                placeholder="Enter amount received" 
+                className="bg-[#09090B] border-[#27272A] font-mono text-sm" 
+              />
+              <p className="text-xs text-muted-foreground">Max: ${partialPaymentTrade?.cash_to_collect?.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full border-[#27272A] justify-start text-left font-normal" data-testid="partial-payment-date-btn">
+                    {partialPaymentForm.date ? format(partialPaymentForm.date, 'MMM dd, yyyy') : 'Select date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 bg-[#121212] border-[#27272A]" align="start">
+                  <Calendar 
+                    mode="single" 
+                    selected={partialPaymentForm.date || new Date()} 
+                    onSelect={(date) => setPartialPaymentForm({...partialPaymentForm, date})} 
+                    className="bg-[#09090B]"
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setPartialPaymentDialogOpen(false)} className="flex-1 border-[#27272A]" data-testid="partial-payment-cancel-btn">Cancel</Button>
+              <Button onClick={handleSubmitPartialPayment} disabled={partialPaymentSaving} className="flex-1 bg-white text-black hover:bg-white/90 font-semibold" data-testid="partial-payment-confirm-btn">
+                {partialPaymentSaving ? "Recording..." : "Record Payment"}
               </Button>
             </div>
           </div>

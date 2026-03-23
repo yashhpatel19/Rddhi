@@ -1,0 +1,99 @@
+spec:
+  name: rddhi-trading-app
+  services:
+  - name: api
+  github:
+    repo: yashhpatel19/Rddhi
+    branch: main
+    deploy_on_push: true
+  build_command: pip install -r backend/requirements.txt && python -m py_compile backend/server.py
+  run_command: "cd backend && uvicorn server:app --host 0.0.0.0 --port 8080"
+  source_dir: backend
+  http_port: 8080
+  health_check:
+    http_path: /health
+  http_routes:
+  - path: /api
+    preserve_path_prefix: true
+  log_destinations:
+  - name: api_logs
+    source: APP_LOG
+  envs:
+  - key: ENVIRONMENT
+    value: production
+  - key: DEBUG
+    value: "false"
+  - key: LOG_LEVEL
+    value: INFO
+  - key: MONGO_URL
+    scope: RUN_TIME
+  - key: DB_NAME
+    value: rddhi
+  - key: ENCRYPTION_KEY
+    scope: RUN_TIME
+  - key: JWT_SECRET
+    scope: RUN_TIME
+  - key: JWT_ALGORITHM
+    value: HS256
+  - key: JWT_EXPIRATION_HOURS
+    value: "24"
+  - key: JWT_REFRESH_EXPIRATION_DAYS
+    value: "7"
+  - key: CORS_ORIGINS
+    scope: RUN_TIME
+  - key: RATE_LIMIT_ENABLED
+    value: "true"
+  - key: RATE_LIMIT_PER_MINUTE
+    value: "60"
+  - key: RATE_LIMIT_PER_HOUR
+    value: "1000"
+
+- name: web
+  github:
+    repo: yashhpatel19/Rddhi
+    branch: main
+    deploy_on_push: true
+  build_command: cd frontend && npm install && SKIP_PREFLIGHT_CHECK=true npm run build
+  run_command: "cd frontend && npm start"
+  source_dir: frontend
+  http_port: 3000
+  health_check:
+    http_path: /
+  cors:
+    allow_origins:
+    - exact: '*'
+  log_destinations:
+  - name: web_logs
+    source: APP_LOG
+  envs:
+  - key: REACT_APP_BACKEND_URL
+    scope: RUN_TIME
+  - key: REACT_APP_ENVIRONMENT
+    value: production
+  - key: SKIP_PREFLIGHT_CHECK
+    value: "true"
+
+static_sites:
+- name: docs
+  source_dir: docs
+  routes:
+  - path: /docs
+
+domains:
+- name: yourdomain.com
+  type: PRIMARY
+
+ingress:
+  rules:
+  - component:
+      name: api
+    match:
+      prefix:
+        - path: /api
+      path:
+        preserve_path_prefix: true
+  - component:
+      name: web
+    match:
+      path:
+        preserve_path_prefix: true

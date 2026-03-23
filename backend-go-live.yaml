@@ -1,0 +1,11 @@
+name: rddhi-api
+services:
+- name: api
+  github:
+    repo: yashhpatel19/Rddhi
+    branch: main
+  source_dir: backend
+  build_command: "pip install --upgrade pip && pip install -r requirements.txt"
+  run_command: "uvicorn server:app --host 0.0.0.0 --port $PORT"
+  http_port: 8080
+  environment_slug: python

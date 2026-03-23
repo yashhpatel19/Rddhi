@@ -1,0 +1,24 @@
+name: rddhi-api
+services:
+- name: api
+  github:
+    branch: main
+    repo: yashhpatel19/Rddhi
+  source_dir: backend
+  build_command: pip install -r requirements.txt
+  run_command: uvicorn server:app --host 0.0.0.0 --port 8080
+  http_port: 8080
+  instance_count: 1
+  instance_size_slug: basic-xs
+  envs:
+  - key: MONGO_URL
+    scope: RUN_TIME
+  - key: JWT_SECRET
+    scope: RUN_TIME
+  - key: ENCRYPTION_KEY
+    scope: RUN_TIME
+  - key: CORS_ORIGINS
+    scope: RUN_TIME
+    value: "*"
+  - key: ENVIRONMENT
+    value: production

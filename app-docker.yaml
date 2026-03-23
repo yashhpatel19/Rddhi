@@ -1,0 +1,27 @@
+name: rddhi-api
+services:
+- name: api
+  github:
+    repo: yashhpatel19/Rddhi
+    branch: main
+  dockerfile_path: Dockerfile
+  source_dir: /
+  http_port: 8000
+  health_check:
+    http_path: /health
+  envs:
+  - key: MONGODB_URI
+    scope: RUN_AND_BUILD_TIME
+    value: ${MONGODB_URI}
+  - key: JWT_SECRET
+    scope: RUN_AND_BUILD_TIME
+    value: ${JWT_SECRET}
+  - key: ENCRYPTION_KEY
+    scope: RUN_AND_BUILD_TIME
+    value: ${ENCRYPTION_KEY}
+  - key: RATE_LIMIT_REQUESTS
+    scope: RUN_AND_BUILD_TIME
+    value: "100"
+  - key: RATE_LIMIT_WINDOW
+    scope: RUN_AND_BUILD_TIME
+    value: "60"

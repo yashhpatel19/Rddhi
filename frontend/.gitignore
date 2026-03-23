@@ -1,23 +1,63 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# production
-/build
-
-# misc
-.DS_Store
+# NEVER COMMIT ENVIRONMENT VARIABLES
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Testing & Coverage
+/coverage
+.nyc_output
+
+# Production builds
+/build
+/dist
+/out
+
+# Development
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
 npm-debug.log*
+npm-error.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# System
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# Cache
+.eslintcache
+.cache/
+.next/
+.turbo/
+dist/
+
+# IDE
+*.iml
+*.sublime-workspace
+
+# Testing
+cypress/videos/
+cypress/screenshots/
+
+# Environment specific
+.env.*.local

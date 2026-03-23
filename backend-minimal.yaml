@@ -1,0 +1,21 @@
+name: rddhi-api  
+services:
+- name: api
+  github:
+    branch: main
+    repo: yashhpatel19/Rddhi
+  source_dir: backend
+  build_command: pip install -r requirements.txt  
+  run_command: uvicorn server:app --host 0.0.0.0 --port 8080
+  http_port: 8080
+  instance_count: 1
+  instance_size_slug: basic-xs
+  envs:
+  - key: MONGO_URL
+    value: mongodb+srv://RL_Trading:%40Yhp%409952414371%24@cluster1.mdbpojt.mongodb.net/?appName=Cluster1
+  - key: JWT_SECRET
+    value: test-jwt-secret-key-replace-me-later-with-secure-value
+  - key: ENCRYPTION_KEY
+    value: dGVzdC1lbmNyeXB0aW9uLWtleS1yZXBsYWNlLW1lLWxhdGVy
+  - key: CORS_ORIGINS
+    value: "*"
