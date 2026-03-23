@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import uuid
 
 class TradeTrackerAPITester:
-    def __init__(self, base_url="https://trade-split-tracker.preview.emergentagent.com/api"):
+    def __init__(self, base_url="http://localhost:8000/api"):
         self.base_url = base_url
         self.token = None
         self.test_user_id = None

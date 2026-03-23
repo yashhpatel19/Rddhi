@@ -1,0 +1,97 @@
+# NEVER COMMIT ENVIRONMENT VARIABLES & SECRETS
+.env
+.env.local
+.env.development
+.env.test
+.env.staging
+.env.production
+*.env
+*.env.*
+
+# Tokens, credentials, and secrets
+*token.json
+*credentials.json
+*secret*
+*.key
+*.pem
+*.crt
+*.csr
+
+# Python virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# Python compilation
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+
+# Logs
+*.log
+logs/
+*.log.*
+debug.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+dump.rdb
+mongo_data/
+mongodb_data/
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# Temporary files
+.tmp/
+tmp/
+temp/
+*.tmp
+
+# System files
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Docker volumes & data
+.dockerignore
+docker-compose.override.yml
+
+# Package manager
+*.egg-info/
+.installed.cfg
+*.egg
+dist/
+pip-log.txt
+pip-delete-this-directory.txt

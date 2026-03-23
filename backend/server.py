@@ -1,80 +1,117 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from dotenv import load_dotenv
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import logging.handlers
 import csv
 import io
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, Field, validator, EmailStr
+from typing import List, Optional, Dict, Any
 import uuid
 import random
 from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
 from cryptography.fernet import Fernet
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from pythonjsonlogger import jsonlogger
+
+# Import custom security module
+from security import (
+    SecurityConfig, 
+    EncryptionManager, 
+    PasswordManager, 
+    TokenManager, 
+    RateLimiter,
+    InputValidator
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# ===== SECURITY VALIDATION & INITIALIZATION =====
+try:
+    config = SecurityConfig.validate_env()
+except ValueError as e:
+    print(f"Configuration Error: {e}")
+    exit(1)
 
-# Encryption
-ENCRYPTION_KEY = os.environ.get('ENCRYPTION_KEY', '')
-if not ENCRYPTION_KEY:
-    ENCRYPTION_KEY = Fernet.generate_key().decode()
-fernet = Fernet(ENCRYPTION_KEY.encode())
+# Initialize managers
+encryption_manager = EncryptionManager(config['ENCRYPTION_KEY'])
+token_manager = TokenManager(
+    config['JWT_SECRET'],
+    config['JWT_ALGORITHM'],
+    config['JWT_EXPIRATION_HOURS'],
+    config
+)
+rate_limiter = RateLimiter(
+    config['RATE_LIMIT_PER_MINUTE'],
+    config['RATE_LIMIT_PER_HOUR']
+)
 
-JWT_SECRET = os.environ.get('JWT_SECRET', 'fallback-secret')
-JWT_ALGORITHM = 'HS256'
+# ===== LOGGING CONFIGURATION =====
+log_level = logging.getLevelName(os.environ.get('LOG_LEVEL', 'INFO'))
+logger = logging.getLogger(__name__)
 
-app = FastAPI()
-api_router = APIRouter(prefix="/api")
+# Console handler with JSON formatting
+console_handler = logging.StreamHandler()
+json_formatter = jsonlogger.JsonFormatter()
+console_handler.setFormatter(json_formatter)
 
-# --- Helpers ---
+# File handler (if in production)
+if config['ENVIRONMENT'] == 'production':
+    file_handler = logging.handlers.RotatingFileHandler(
+        'logs/rddhi.log',
+        maxBytes=10485760,  # 10MB
+        backupCount=10
+    )
+    file_handler.setFormatter(json_formatter)
+    logger.addHandler(file_handler)
+
+logger.addHandler(console_handler)
+logger.setLevel(log_level)
+logger.info(f"Rddhi Trading App initialized - Environment: {config['ENVIRONMENT']}")
+
+# ===== DATABASE & ENCRYPTION =====
+client = AsyncIOMotorClient(config['MONGO_URL'])
+db = client[config['DB_NAME']]
+
+# Legacy functions for compatibility (wrapped with new encryption manager)
 def encrypt_value(value):
-    return fernet.encrypt(str(value).encode()).decode()
+    """Legacy wrapper for encryption"""
+    return encryption_manager.encrypt(value)
 
 def decrypt_value(encrypted_value):
-    try:
-        return float(fernet.decrypt(encrypted_value.encode()).decode())
-    except Exception:
-        return 0.0
-
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode(), hashed.encode())
-
-def create_token(user_id: str, email: str) -> str:
-    payload = {
-        'user_id': user_id,
-        'email': email,
-        'exp': datetime.now(timezone.utc) + timedelta(days=7)
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    """Legacy wrapper for decryption"""
+    return encryption_manager.decrypt(encrypted_value)
 
 async def get_current_user(request: Request):
+    """Validate JWT token and return current user"""
     auth_header = request.headers.get('Authorization', '')
+    
     if not auth_header.startswith('Bearer '):
+        logger.warning("Missing or invalid Authorization header")
         raise HTTPException(status_code=401, detail='Not authenticated')
+    
     token = auth_header[7:]
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = token_manager.verify_token(token, token_type='access')
         user = await db.users.find_one({'id': payload['user_id']}, {'_id': 0})
         if not user:
+            logger.warning(f"User not found: {payload['user_id']}")
             raise HTTPException(status_code=401, detail='User not found')
         return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail='Token expired')
-    except jwt.InvalidTokenError:
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token verification error: {e}")
         raise HTTPException(status_code=401, detail='Invalid token')
 
 def calculate_trade(cbm, official_bill_rate, supplier_total_rate, customer_sale_rate, risk_premium):
@@ -112,6 +149,10 @@ def format_trade(doc):
         'customer_collection_date': doc.get('customer_collection_date'),
         'supplier_paid': doc.get('supplier_paid', False),
         'customer_collected': doc.get('customer_collected', False),
+        'is_partially_paid': doc.get('is_partially_paid', False),
+        'partial_payment_amount': decrypt_value(doc.get('partial_payment_amount_enc', '')),
+        'partial_payment_date': doc.get('partial_payment_date'),
+        'remaining_balance': decrypt_value(doc.get('cash_to_collect_enc', '')) - decrypt_value(doc.get('partial_payment_amount_enc', '')),
         'claims': doc.get('claims', 0),
         'status': doc.get('status', 'active'),
         'close_notes': doc.get('close_notes', ''),
@@ -139,13 +180,100 @@ async def get_trades_for_fy(user_id: str, fy: int = None):
     return await db.trades.find(query, {'_id': 0}).to_list(5000)
 
 # --- Models ---
+
+# ===== FASTAPI APP INITIALIZATION =====
+app = FastAPI(
+    title="Rddhi Trading API",
+    description="Enterprise Resource Planning for International Trade Agents",
+    version="1.0.0",
+    docs_url="/api/docs" if config['DEBUG'] else None,
+    openapi_url="/api/openapi.json" if config['DEBUG'] else None,
+)
+
+api_router = APIRouter(prefix="/api")
+
+# ===== SECURITY MIDDLEWARE =====
+
+# CORS middleware (must be first)
+cors_origins = config.get('CORS_ORIGINS', ['http://localhost:3000'])
+logger.info(f"CORS origins: {cors_origins}")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    max_age=86400,  # 24 hours
+)
+
+# ===== SECURITY HEADERS MIDDLEWARE =====
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Add security headers to all responses"""
+    response = await call_next(request)
+    
+    # Prevent clickjacking
+    response.headers["X-Frame-Options"] = "DENY"
+    
+    # Prevent content type sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    
+    # Enable XSS protection
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    
+    # Content Security Policy (permissive for now)
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+    
+    # Referrer Policy
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    # Permissions Policy
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    
+    return response
+
+# ===== RATE LIMITING MIDDLEWARE =====
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting based on IP address"""
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Skip rate limiting for health checks
+    if request.url.path in ["/api/health", "/health"]:
+        return await call_next(request)
+    
+    if not rate_limiter.is_allowed(client_ip):
+        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please try again later."}
+        )
+    
+    return await call_next(request)
+
+logger.info("Security middleware initialized")
+
+# --- Models ---
 class RegisterRequest(BaseModel):
     name: str
-    email: str
+    email: EmailStr
     password: str
+    
+    @validator('name')
+    def validate_name(cls, v):
+        if not InputValidator.validate_name(v):
+            raise ValueError('Invalid name format')
+        return v
+    
+    @validator('password')
+    def validate_password(cls, v):
+        if not InputValidator.validate_password(v):
+            raise ValueError('Password must be at least 8 characters with uppercase, lowercase, and numbers')
+        return v
 
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 class TradeCreate(BaseModel):
@@ -173,6 +301,9 @@ class TradeUpdate(BaseModel):
     customer_collection_date: Optional[str] = None
     supplier_paid: Optional[bool] = None
     customer_collected: Optional[bool] = None
+    is_partially_paid: Optional[bool] = None
+    partial_payment_amount: Optional[float] = None
+    partial_payment_date: Optional[str] = None
     claims: Optional[int] = None
     status: Optional[str] = None
 
@@ -183,32 +314,202 @@ class CloseTradeRequest(BaseModel):
 # --- Auth ---
 @api_router.post("/auth/register")
 async def register(req: RegisterRequest):
-    existing = await db.users.find_one({'email': req.email})
-    if existing:
-        raise HTTPException(status_code=400, detail='Email already registered')
-    user_id = str(uuid.uuid4())
-    user = {
-        'id': user_id,
-        'name': req.name,
-        'email': req.email,
-        'password': hash_password(req.password),
-        'created_at': datetime.now(timezone.utc).isoformat()
-    }
-    await db.users.insert_one(user)
-    token = create_token(user_id, req.email)
-    return {'token': token, 'user': {'id': user_id, 'name': req.name, 'email': req.email}}
+    try:
+        # Check if email already registered
+        existing = await db.users.find_one({'email': req.email})
+        if existing:
+            logger.warning(f"Registration attempt with existing email: {req.email}")
+            raise HTTPException(
+                status_code=400,
+                detail='Email already registered'
+            )
+        
+        # Create user
+        user_id = str(uuid.uuid4())
+        user = {
+            'id': user_id,
+            'name': InputValidator.sanitize_string(req.name),
+            'email': req.email,
+            'password': PasswordManager.hash_password(req.password),
+            'failed_login_attempts': 0,
+            'locked_until': None,
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'last_login': None,
+        }
+        
+        await db.users.insert_one(user)
+        logger.info(f"New user registered: {user_id}")
+        
+        # Create tokens
+        access_token = token_manager.create_access_token(user_id, req.email)
+        refresh_token = token_manager.create_refresh_token(user_id)
+        
+        # Store refresh token
+        await db.refresh_tokens.insert_one({
+            'user_id': user_id,
+            'token': refresh_token,
+            'created_at': datetime.now(timezone.utc).isoformat(),
+        })
+        
+        return {
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'token_type': 'bearer',
+            'user': {
+                'id': user_id,
+                'name': user['name'],
+                'email': req.email
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail='Registration failed'
+        )
 
 @api_router.post("/auth/login")
 async def login(req: LoginRequest):
-    user = await db.users.find_one({'email': req.email}, {'_id': 0})
-    if not user or not verify_password(req.password, user['password']):
-        raise HTTPException(status_code=401, detail='Invalid credentials')
-    token = create_token(user['id'], user['email'])
-    return {'token': token, 'user': {'id': user['id'], 'name': user['name'], 'email': user['email']}}
+    try:
+        user = await db.users.find_one({'email': req.email}, {'_id': 0})
+        
+        if not user:
+            logger.warning(f"Login attempt with non-existent email: {req.email}")
+            raise HTTPException(status_code=401, detail='Invalid credentials')
+        
+        # Check account lock
+        if user.get('locked_until'):
+            lock_until = datetime.fromisoformat(user['locked_until'].replace('Z', '+00:00'))
+            if datetime.now(timezone.utc) < lock_until:
+                logger.warning(f"Login attempt on locked account: {req.email}")
+                raise HTTPException(
+                    status_code=429,
+                    detail='Account temporarily locked. Please try again later.'
+                )
+            # Unlock account
+            await db.users.update_one(
+                {'id': user['id']},
+                {'$set': {'locked_until': None, 'failed_login_attempts': 0}}
+            )
+        
+        # Verify password
+        if not PasswordManager.verify_password(req.password, user['password']):
+            failed_attempts = user.get('failed_login_attempts', 0) + 1
+            
+            # Lock account after 5 failed attempts
+            update_data = {'failed_login_attempts': failed_attempts}
+            if failed_attempts >= 5:
+                update_data['locked_until'] = (
+                    datetime.now(timezone.utc) + timedelta(minutes=15)
+                ).isoformat()
+                logger.warning(f"Account locked after failed attempts: {req.email}")
+            
+            await db.users.update_one(
+                {'id': user['id']},
+                {'$set': update_data}
+            )
+            
+            logger.warning(f"Failed login attempt for {req.email} (attempt {failed_attempts})")
+            raise HTTPException(status_code=401, detail='Invalid credentials')
+        
+        # Reset failed attempts and update last login
+        await db.users.update_one(
+            {'id': user['id']},
+            {'$set': {
+                'failed_login_attempts': 0,
+                'last_login': datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        
+        logger.info(f"User logged in: {user['id']}")
+        
+        # Create tokens
+        access_token = token_manager.create_access_token(user['id'], user['email'])
+        refresh_token = token_manager.create_refresh_token(user['id'])
+        
+        # Store refresh token
+        await db.refresh_tokens.insert_one({
+            'user_id': user['id'],
+            'token': refresh_token,
+            'created_at': datetime.now(timezone.utc).isoformat(),
+        })
+        
+        return {
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'token_type': 'bearer',
+            'user': {
+                'id': user['id'],
+                'name': user['name'],
+                'email': user['email']
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail='Login failed')
+
+@api_router.post("/auth/refresh")
+async def refresh_access_token(refresh_token: str):
+    """Refresh access token using refresh token"""
+    try:
+        payload = token_manager.verify_token(refresh_token, token_type='refresh')
+        
+        # Verify refresh token exists in database
+        db_token = await db.refresh_tokens.find_one({
+            'user_id': payload['user_id'],
+            'token': refresh_token
+        })
+        
+        if not db_token:
+            logger.warning(f"Invalid refresh token attempt for user: {payload['user_id']}")
+            raise HTTPException(status_code=401, detail='Invalid refresh token')
+        
+        # Get user
+        user = await db.users.find_one({'id': payload['user_id']})
+        if not user:
+            raise HTTPException(status_code=401, detail='User not found')
+        
+        # Create new access token
+        access_token = token_manager.create_access_token(user['id'], user['email'])
+        
+        logger.info(f"Token refreshed for user: {user['id']}")
+        
+        return {
+            'access_token': access_token,
+            'token_type': 'bearer'
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token refresh error: {e}")
+        raise HTTPException(status_code=401, detail='Invalid refresh token')
+
+@api_router.post("/auth/logout")
+async def logout(user=Depends(get_current_user), request: Request = None):
+    """Logout and invalidate refresh tokens"""
+    try:
+        # Remove all refresh tokens for this user
+        await db.refresh_tokens.delete_many({'user_id': user['id']})
+        logger.info(f"User logged out: {user['id']}")
+        return {'message': 'Logged out successfully'}
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        return {'message': 'Logout completed'}
 
 @api_router.get("/auth/me")
 async def get_me(user=Depends(get_current_user)):
-    return {'id': user['id'], 'name': user['name'], 'email': user['email']}
+    """Get current user information"""
+    return {
+        'id': user['id'],
+        'name': user['name'],
+        'email': user['email'],
+        'created_at': user.get('created_at'),
+        'last_login': user.get('last_login')
+    }
 
 # --- Trades ---
 @api_router.post("/trades", status_code=201)
@@ -275,6 +576,10 @@ async def update_trade(trade_id: str, update: TradeUpdate, user=Depends(get_curr
         update_data['my_commission_enc'] = encrypt_value(calcs['my_commission'])
         update_data['risk_premium_amount_enc'] = encrypt_value(calcs['risk_premium_amount'])
         update_data['final_commission_enc'] = encrypt_value(calcs['final_commission'])
+    # Handle partial payment amount encryption
+    if 'partial_payment_amount' in update_data:
+        update_data['partial_payment_amount_enc'] = encrypt_value(update_data['partial_payment_amount'])
+        update_data.pop('partial_payment_amount')  # Remove unencrypted version
     update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
     await db.trades.update_one({'id': trade_id}, {'$set': update_data})
     updated = await db.trades.find_one({'id': trade_id}, {'_id': 0})
@@ -382,14 +687,18 @@ async def customer_trust_scores(fy: Optional[int] = None, user=Depends(get_curre
     for t in trades:
         name = t['customer_name']
         if name not in customers:
-            customers[name] = {'name': name, 'total_trades': 0, 'collected': 0, 'delayed': 0, 'total_amount': 0, 'collected_amount': 0}
+            customers[name] = {'name': name, 'total_trades': 0, 'collected': 0, 'partially_paid': 0, 'delayed': 0, 'total_amount': 0, 'collected_amount': 0}
         customers[name]['total_trades'] += 1
         amt = decrypt_value(t.get('cash_to_collect_enc', ''))
         customers[name]['total_amount'] += amt
         if t.get('customer_collected'):
             customers[name]['collected'] += 1
             customers[name]['collected_amount'] += amt
-        elif t.get('customer_collection_date'):
+        elif t.get('is_partially_paid'):
+            customers[name]['partially_paid'] += 1
+            partial_amt = decrypt_value(t.get('partial_payment_amount_enc', ''))
+            customers[name]['collected_amount'] += partial_amt
+        if t.get('customer_collection_date') and not t.get('customer_collected') and not t.get('is_partially_paid'):
             try:
                 due_str = t['customer_collection_date']
                 if due_str.endswith('Z'):
@@ -404,7 +713,9 @@ async def customer_trust_scores(fy: Optional[int] = None, user=Depends(get_curre
     result = []
     for c in customers.values():
         if c['total_trades'] > 0:
-            collection_rate = (c['collected'] / c['total_trades']) * 100
+            full_collected = c['collected']
+            partial_collected = c['partially_paid']
+            collection_rate = ((full_collected + (partial_collected * 0.5)) / c['total_trades']) * 100
             delay_penalty = (c['delayed'] / c['total_trades']) * 40
             trust_score = min(100, max(0, collection_rate - delay_penalty))
         else:
@@ -413,6 +724,7 @@ async def customer_trust_scores(fy: Optional[int] = None, user=Depends(get_curre
             'name': c['name'],
             'total_trades': c['total_trades'],
             'collected': c['collected'],
+            'partially_paid': c['partially_paid'],
             'delayed': c['delayed'],
             'trust_score': round(trust_score, 1),
             'total_amount': round(c['total_amount'], 2),
@@ -633,6 +945,8 @@ async def commission_report(fy: Optional[int] = None, user=Depends(get_current_u
         monthly[month_key]['cbm'] += t['cbm']
         if t.get('customer_collected'):
             monthly[month_key]['cash_collected'] += decrypt_value(t.get('cash_to_collect_enc', ''))
+        elif t.get('is_partially_paid'):
+            monthly[month_key]['cash_collected'] += decrypt_value(t.get('partial_payment_amount_enc', ''))
         if t.get('supplier_paid'):
             monthly[month_key]['supplier_paid'] += decrypt_value(t.get('supplier_cash_due_enc', ''))
     by_supplier = {}
@@ -712,14 +1026,16 @@ async def best_customers(fy: Optional[int] = None, user=Depends(get_current_user
         name = t['customer_name']
         if name not in customers:
             customers[name] = {'name': name, 'total_trades': 0, 'total_commission': 0, 'total_volume': 0,
-                               'collected': 0, 'delayed': 0, 'total_cash': 0}
+                               'collected': 0, 'partially_paid': 0, 'delayed': 0, 'total_cash': 0}
         customers[name]['total_trades'] += 1
         customers[name]['total_commission'] += decrypt_value(t.get('final_commission_enc', ''))
         customers[name]['total_volume'] += t['cbm']
         customers[name]['total_cash'] += decrypt_value(t.get('cash_to_collect_enc', ''))
         if t.get('customer_collected'):
             customers[name]['collected'] += 1
-        if t.get('customer_collection_date') and not t.get('customer_collected'):
+        elif t.get('is_partially_paid'):
+            customers[name]['partially_paid'] += 1
+        if t.get('customer_collection_date') and not t.get('customer_collected') and not t.get('is_partially_paid'):
             try:
                 due = datetime.fromisoformat(t['customer_collection_date'].replace('Z', '+00:00'))
                 if due.tzinfo is None:
@@ -792,17 +1108,57 @@ async def claims_analysis(fy: Optional[int] = None, user=Depends(get_current_use
 # Include router and middleware
 app.include_router(api_router)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ===== GLOBAL ERROR HANDLERS =====
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Handle all unhandled exceptions"""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions"""
+    logger.warning(f"HTTP exception {exc.status_code}: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+# ===== HEALTH CHECK =====
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        # Test database connection
+        await db.users.find_one({})
+        return {
+            "status": "healthy",
+            "environment": config['ENVIRONMENT'],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "detail": str(e)
+        }
+
+# ===== STARTUP & SHUTDOWN =====
+@app.on_event("startup")
+async def startup_event():
+    """Initialize on application startup"""
+    logger.info("=" * 50)
+    logger.info("Rddhi Trading App Starting")
+    logger.info(f"Environment: {config['ENVIRONMENT']}")
+    logger.info(f"Debug: {config['DEBUG']}")
+    logger.info("=" * 50)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    """Close database connection on shutdown"""
+    logger.info("Shutting down Rddhi Trading App")
     client.close()
+    logger.info("Database connection closed")
