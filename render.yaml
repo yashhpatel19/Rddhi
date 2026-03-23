@@ -9,17 +9,8 @@ services:
     healthCheckPath: /health
     envVars:
       - key: MONGODB_URI
-        fromDatabase:
-          name: rddhi-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET
         sync: false
       - key: ENCRYPTION_KEY
         sync: false
-
-databases:
-  - name: rddhi-db
-    databaseName: rddhi
-    user: rddhi_user
-    region: oregon
-    plan: free
