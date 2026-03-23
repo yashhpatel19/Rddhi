@@ -1,0 +1,25 @@
+{
+  "name": "Rddhi API",
+  "description": "Trading backend API",
+  "repo": "https://github.com/yashhpatel19/Rddhi",
+  "buildCommand": "pip install -r backend/requirements.txt",
+  "startCommand": "cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT",
+  "env": [
+    {
+      "key": "PYTHON_VERSION",
+      "value": "3.11.0"
+    },
+    {
+      "key": "MONGODB_URI",
+      "value": "${MONGODB_URI}"
+    },
+    {
+      "key": "JWT_SECRET",
+      "value": "${JWT_SECRET}"
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "value": "${ENCRYPTION_KEY}"
+    }
+  ]
+}
